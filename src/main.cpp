@@ -205,7 +205,7 @@ struct App {
         set(Status,hasSource()?L"等待识别固件":L"请选择固件");set(DeviceInfo,L"选择固件后会显示机型、版本和插件。");
         set(Detail,L"选择固件后会自动识别型号、网络模式和插件。");showPage(1);
         EnableWindow(controls[Start],FALSE);EnableWindow(controls[ViewPlugins],FALSE);
-        if(hasSource())SetTimer(window,1,500,nullptr);else SetFocus(controls[BrowseFile]);
+        if(hasSource())SetTimer(window,1,500,nullptr);else SetFocus(window);
     }
     void applyDetectedMode(const Json& inventory){auto defaults=inventory["network_defaults"];auto mode=defaults["mode"].get<std::string>();
         detectedMode=mode=="side"?2:mode=="router"?1:0;setAutomaticLabel();
@@ -315,6 +315,6 @@ int WINAPI wWinMain(HINSTANCE h,HINSTANCE,LPWSTR,int show){instance=h;wchar_t ex
     auto window=CreateWindowExW(0,c.lpszClassName,L"Kwrt Studio · KWRT 固件转换",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,(work.right-r.right+r.left)/2,(work.bottom-r.bottom+r.top)/2,r.right-r.left,r.bottom-r.top,nullptr,nullptr,h,&app);
     if(!window){MessageBoxW(nullptr,L"软件无法启动，请重新完整解压后再试。",L"Kwrt Studio",MB_OK);return 1;}
     GetWindowRect(window,&r);SetWindowPos(window,nullptr,work.left+(work.right-work.left-(r.right-r.left))/2,work.top+(work.bottom-work.top-(r.bottom-r.top))/2,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
-    ShowWindow(window,show);UpdateWindow(window);if(!app.hasSource())SetFocus(app.controls[BrowseFile]);
+    ShowWindow(window,show);UpdateWindow(window);
     MSG msg;while(GetMessageW(&msg,nullptr,0,0)>0){if(!IsDialogMessageW(window,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}CoUninitialize();return int(msg.wParam);
 }
