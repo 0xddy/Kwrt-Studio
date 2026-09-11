@@ -75,8 +75,7 @@ struct App {
         label(L"保存到",44,173,100);edit(Output,160,162,700);button(L"选择目录",BrowseOutput,872,163,124);
         auto device=control(L"STATIC",L"支持拖入文件，或点击“选择固件”。",DeviceInfo,160,216,663,22,SS_LEFT|SS_ENDELLIPSIS);SendMessageW(device,WM_SETFONT,(WPARAM)smallFont,TRUE);
         button(L"查看插件",ViewPlugins,842,210,154,30);EnableWindow(controls[ViewPlugins],FALSE);
-        button(L"网络设置",PageNetwork,24,264,144);button(L"设备信息 · 可选",PageDevice,180,264,188);
-        label(L"设置只写入本次生成的固件",718,275,295,22,smallFont);
+        button(L"网络设置",PageNetwork,24,264,144);button(L"设备信息",PageDevice,180,264,144);
 
         creatingPage=1;
         label(L"网络模式",44,336,112,26,heading);
