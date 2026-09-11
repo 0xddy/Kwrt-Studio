@@ -9,7 +9,7 @@
 
 using namespace ax;
 namespace {
-enum {Address=3001,Port,Username,Password,ShowPassword,RefreshGateway,Run,Close};
+enum {Address=3001,Port,Username,Password,ShowPassword,Run,Close,GatewayChoices};
 constexpr UINT Finished=WM_APP+61;
 struct Completion {Json result;std::string error,fingerprint;bool changed=false;};
 // Session-only trust cache. No credentials or router information are written to disk.
@@ -22,6 +22,7 @@ struct Viewer {
     COLORREF resultFill=ui::tint,resultBorder=RGB(216,226,251),resultInk=ui::accent;
     HIMAGELIST rowHeight=nullptr;std::set<HWND> canvasControls,resultControls,mutedControls;
     std::map<HWND,RECT> editBoxes;
+    std::vector<Gateway> availableGateways;
     std::thread worker;std::atomic_bool cancel{false};bool running=false,closing=false,hasResult=false;
     std::string endpoint;
     Viewer(HWND parent,fs::path input,HFONT f,double dpi):owner(parent),font(f),scale(dpi),firmware(std::move(input)){}
@@ -37,13 +38,44 @@ struct Viewer {
     std::string get(int id){auto w=fields.at(id);int n=GetWindowTextLengthW(w);std::wstring value(n+1,0);GetWindowTextW(w,value.data(),n+1);value.resize(n);auto result=utf8(value);if(id==Password&&!value.empty())SecureZeroMemory(value.data(),value.size()*sizeof(wchar_t));return result;}
     void gateways(){
         resetResult();
-        try{auto gateways=localGateways();SendMessageW(fields[Address],CB_RESETCONTENT,0,0);
-            if(gateways.empty()){SetWindowTextW(gatewayHint,L"未发现网关，请手动填写");return;}
-            for(auto& g:gateways){auto value=wide(g.address);SendMessageW(fields[Address],CB_ADDSTRING,0,(LPARAM)value.c_str());}
-            SetWindowTextW(fields[Address],wide(gateways.front().address).c_str());
-            auto note="来自 "+gateways.front().adapter;
+        try{availableGateways=localGateways();EnableWindow(fields[GatewayChoices],!availableGateways.empty());
+            if(availableGateways.empty()){SetWindowTextW(gatewayHint,L"未发现网关，请手动填写");return;}
+            SetWindowTextW(fields[Address],wide(availableGateways.front().address).c_str());
+            auto note="来自 "+availableGateways.front().adapter;
             SetWindowTextW(gatewayHint,wide(note).c_str());
-        }catch(const std::exception& e){SetWindowTextW(gatewayHint,wide(e.what()).c_str());}
+        }catch(const std::exception& e){availableGateways.clear();EnableWindow(fields[GatewayChoices],FALSE);SetWindowTextW(gatewayHint,wide(e.what()).c_str());}
+    }
+    void chooseGateway(){
+        if(running||availableGateways.empty())return;
+        auto menu=CreatePopupMenu();need(menu!=nullptr,"无法打开网关列表。");
+        auto current=get(Address);
+        for(size_t i=0;i<availableGateways.size();i++){
+            auto& gateway=availableGateways[i];auto label=wide(gateway.address+"  ·  "+gateway.adapter);
+            for(size_t p=0;(p=label.find(L'&',p))!=label.npos;p+=2)label.insert(p,1,L'&');
+            AppendMenuW(menu,MF_STRING|(current==gateway.address?MF_CHECKED:0),UINT_PTR(i+1),label.c_str());
+        }
+        auto bounds=editBoxes.at(fields[Address]);MapWindowPoints(window,nullptr,(POINT*)&bounds,2);
+        auto selected=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN|TPM_TOPALIGN,bounds.left,bounds.bottom,0,window,nullptr);DestroyMenu(menu);
+        if(selected>0&&size_t(selected)<=availableGateways.size()){
+            auto& gateway=availableGateways[size_t(selected)-1];SetWindowTextW(fields[Address],wide(gateway.address).c_str());
+            SetWindowTextW(gatewayHint,wide("来自 "+gateway.adapter).c_str());SetFocus(fields[Address]);
+        }
+    }
+    static LRESULT CALLBACK addressProc(HWND w,UINT m,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR data){
+        auto v=(Viewer*)data;
+        if((m==WM_KEYDOWN&&wp==VK_F4)||(m==WM_SYSKEYDOWN&&wp==VK_DOWN)){
+            PostMessageW(v->window,WM_COMMAND,MAKEWPARAM(GatewayChoices,BN_CLICKED),0);return 0;
+        }
+        return DefSubclassProc(w,m,wp,lp);
+    }
+    void drawGatewayButton(DRAWITEMSTRUCT* d){
+        const bool disabled=(d->itemState&ODS_DISABLED)!=0,hover=GetPropW(d->hwndItem,L"SLS.Hover")!=nullptr;
+        auto fill=hover&&!disabled?ui::tint:RGB(255,255,255);auto r=d->rcItem;
+        ui::rounded(d->hDC,r,fill,fill,s(8));
+        auto pen=CreatePen(PS_SOLID,std::max(1,s(1)),disabled?RGB(177,186,198):ui::muted);auto old=SelectObject(d->hDC,pen);
+        int x=(r.left+r.right)/2,y=(r.top+r.bottom)/2;MoveToEx(d->hDC,x-s(4),y-s(2),nullptr);LineTo(d->hDC,x,y+s(2));LineTo(d->hDC,x+s(4),y-s(2));
+        SelectObject(d->hDC,old);DeleteObject(pen);
+        // The surrounding input border already indicates keyboard focus.
     }
     void create(){
         heading=CreateFontW(-s(22),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
@@ -53,9 +85,11 @@ struct Viewer {
         auto subtitle=control(L"STATIC",L"查看当前分区，了解是否适合转换后的固件。",0,28,65,780,24);mutedControls.insert(subtitle);
         auto section=control(L"STATIC",L"SSH 连接",0,46,128,260,28);SendMessageW(section,WM_SETFONT,(WPARAM)sectionFont,TRUE);
         control(L"STATIC",L"路由器地址",0,46,176,262,24);
-        control(WC_COMBOBOXW,L"",Address,46,206,262,210,CBS_DROPDOWN|CBS_AUTOHSCROLL|WS_VSCROLL|WS_TABSTOP);SendMessageW(fields[Address],CB_LIMITTEXT,127,0);
-        gatewayHint=control(L"STATIC",L"",0,46,252,135,24,SS_ENDELLIPSIS);SendMessageW(gatewayHint,WM_SETFONT,(WPARAM)smallFont,TRUE);mutedControls.insert(gatewayHint);
-        button(L"获取网关",RefreshGateway,192,242,116);
+        edit(Address,L"",46,204,262);SendMessageW(fields[Address],EM_SETLIMITTEXT,127,0);
+        MoveWindow(fields[Address],s(58),s(213),s(206),s(23),FALSE);
+        SetWindowSubclass(fields[Address],addressProc,2,(DWORD_PTR)this);
+        auto arrow=control(L"BUTTON",L"选择网关",GatewayChoices,270,210,32,28,BS_OWNERDRAW|WS_TABSTOP);SetWindowSubclass(arrow,ui::buttonProc,1,0);SetWindowSubclass(arrow,ui::inputProc,2,0);
+        gatewayHint=control(L"STATIC",L"",0,46,252,262,24,SS_ENDELLIPSIS);SendMessageW(gatewayHint,WM_SETFONT,(WPARAM)smallFont,TRUE);mutedControls.insert(gatewayHint);
         control(L"STATIC",L"SSH 端口",0,46,302,90,24);edit(Port,L"22",46,330,90);
         control(L"STATIC",L"用户名",0,152,302,156,24);edit(Username,L"root",152,330,156);
         control(L"STATIC",L"SSH 密码",0,46,394,262,24);edit(Password,L"",46,422,262);
@@ -87,7 +121,7 @@ struct Viewer {
         ui::rounded(dc,{s(24),s(108),s(330),s(684)},RGB(255,255,255),ui::line,s(14));
         ui::rounded(dc,{s(352),s(108),s(1016),s(302)},resultFill,resultBorder,s(14));
         ui::rounded(dc,{s(352),s(318),s(1016),s(684)},RGB(255,255,255),ui::line,s(14));
-        for(auto& [w,r]:editBoxes)ui::rounded(dc,r,RGB(255,255,255),GetFocus()==w?ui::accent:ui::line,s(10));EndPaint(window,&ps);
+        for(auto& [w,r]:editBoxes){bool focused=GetFocus()==w||(w==fields[Address]&&GetFocus()==fields[GatewayChoices]);ui::rounded(dc,r,RGB(255,255,255),focused?ui::accent:ui::line,s(10));}EndPaint(window,&ps);
     }
     HBRUSH color(HDC dc,HWND child){SetBkMode(dc,TRANSPARENT);SetTextColor(dc,mutedControls.count(child)?ui::muted:ui::ink);
         if(resultControls.count(child)){SetBkColor(dc,resultFill);if(child==resultTitle)SetTextColor(dc,resultInk);return resultBrush;}
@@ -103,6 +137,7 @@ struct Viewer {
         RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN);
     }
     void busy(bool value){running=value;for(auto& [id,w]:fields)if(id!=Close&&id!=Run)EnableWindow(w,!value);
+        EnableWindow(fields[GatewayChoices],!value&&!availableGateways.empty());
         SetWindowTextW(fields[Run],value?L"取消检测":L"开始检测");InvalidateRect(window,nullptr,FALSE);}
     void resetResult(){if(!hasResult||running)return;hasResult=false;ListView_DeleteAllItems(list);ShowWindow(list,SW_HIDE);ShowWindow(emptyList,SW_SHOW);SetWindowTextW(emptyList,L"等待重新检测");
         SetWindowTextW(device,L"连接后显示路由器型号");SetWindowTextW(status,L"连接信息已更改");outcome("等待重新检测","连接信息已更改","点击“开始检测”，读取当前地址对应的设备信息。","不影响固件转换。","ready");}
@@ -160,15 +195,15 @@ LRESULT CALLBACK procedure(HWND w,UINT m,WPARAM wp,LPARAM lp){
     case WM_CREATE:v->create();return 0;
     case WM_PAINT:v->paint();return 0;
     case WM_ERASEBKGND:return 1;
-    case WM_DRAWITEM:ui::button((DRAWITEMSTRUCT*)lp,v->font,v->scale,((DRAWITEMSTRUCT*)lp)->CtlID==Run);return TRUE;
+    case WM_DRAWITEM:if(((DRAWITEMSTRUCT*)lp)->CtlID==GatewayChoices)v->drawGatewayButton((DRAWITEMSTRUCT*)lp);else ui::button((DRAWITEMSTRUCT*)lp,v->font,v->scale,((DRAWITEMSTRUCT*)lp)->CtlID==Run);return TRUE;
     case WM_CTLCOLORSTATIC:case WM_CTLCOLOREDIT:case WM_CTLCOLORBTN:return (LRESULT)v->color((HDC)wp,(HWND)lp);
     case WM_NOTIFY:{auto header=(NMHDR*)lp;if(header->hwndFrom==v->list&&header->code==NM_CUSTOMDRAW){auto draw=(NMLVCUSTOMDRAW*)lp;
         if(draw->nmcd.dwDrawStage==CDDS_PREPAINT)return CDRF_NOTIFYITEMDRAW;
         if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT){draw->clrText=ui::ink;draw->clrTextBk=draw->nmcd.dwItemSpec%2?RGB(246,248,252):RGB(255,255,255);return CDRF_NEWFONT;}
     }return 0;}
     case WM_COMMAND:
-        if((LOWORD(wp)==Address&&(HIWORD(wp)==CBN_EDITCHANGE||HIWORD(wp)==CBN_SELCHANGE))||((LOWORD(wp)==Port||LOWORD(wp)==Username)&&HIWORD(wp)==EN_CHANGE))v->resetResult();
-        else if(LOWORD(wp)==RefreshGateway&&HIWORD(wp)==BN_CLICKED)v->gateways();
+        if((LOWORD(wp)==Address||LOWORD(wp)==Port||LOWORD(wp)==Username)&&HIWORD(wp)==EN_CHANGE)v->resetResult();
+        else if(LOWORD(wp)==GatewayChoices&&HIWORD(wp)==BN_CLICKED)v->chooseGateway();
         else if(LOWORD(wp)==Run&&HIWORD(wp)==BN_CLICKED)v->start();
         else if(LOWORD(wp)==ShowPassword){SendMessageW(v->fields[Password],EM_SETPASSWORDCHAR,SendMessageW(v->fields[ShowPassword],BM_GETCHECK,0,0)==BST_CHECKED?0:L'●',0);InvalidateRect(v->fields[Password],nullptr,TRUE);}
         else if(LOWORD(wp)==Close||LOWORD(wp)==IDCANCEL)v->close();return 0;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(KwrtStudio VERSION 1.4.1 LANGUAGES C CXX RC)
+project(KwrtStudio VERSION 1.4.2 LANGUAGES C CXX RC)
 if(NOT MSVC OR NOT WIN32)
   message(FATAL_ERROR "Build with Visual Studio on Windows x64.")
 endif()

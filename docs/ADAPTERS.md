@@ -50,6 +50,8 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 
 ## 自动构建与发布
 
+本地开发复用现有源码、构建目录和固定的 `Kwrt-Studio` 输出目录，更新时覆盖程序与随附文件；不按版本号复制项目目录，不移除个人配置或生成的固件。GitHub Release 的下载包仍按版本号区分。
+
 `windows.yml` 在提交到 main 或创建 PR 时编译、自检并保存下载包。`release.yml` 复用同一构建流程，在推送 `v版本号` 标签时将 ZIP 和 SHA-256 校验文件发布到 GitHub Release。
 
 标签必须与 `CMakeLists.txt` 和 EXE 的版本一致，例如 `v1.3.2`。也可在 Actions 中手动运行 Release，按所选提交的版本号创建标签并发布。已有版本标签须指向同一提交，已发布的附件不会被覆盖；未完成的草稿可重新运行补齐。发布说明取自 `CHANGELOG.md` 的对应版本。
