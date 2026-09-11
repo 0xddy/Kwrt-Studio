@@ -24,13 +24,13 @@ using namespace ax;
 static HINSTANCE instance;
 static fs::path appDir;
 static constexpr UINT WM_PROGRESS=WM_APP+1,WM_FINISH=WM_APP+2;
-enum Id {File=100,Output,BrowseFile,BrowseOutput,Account,PppPassword,Lan,Mask,Ssid,WifiPassword,AdminPassword,Country,Ipv6,ShowPasswords,Remember,Start,Cancel,OpenOutput,Save,Load,ProgressBar,Status,Detail,DeviceInfo,Detect,Devices,ViewPlugins,Hostname,Signature,RemoveAuthorLinks,RoutingMode,SideGateway,SideDns,SideDhcp,RightTitle,SideNote,CountryHint,ModeHint,PageNetwork,PageDevice};
+enum Id {File=100,Output,BrowseFile,BrowseOutput,Account,PppPassword,Lan,Mask,Ssid,WifiPassword,AdminPassword,Country,Ipv6,ShowPasswords,Remember,Start,Cancel,OpenOutput,Save,Load,ProgressBar,Status,Detail,DeviceInfo,Detect,Devices,ViewPlugins,Hostname,Signature,RemoveAuthorLinks,RoutingMode,SideGateway,SideDns,SideDhcp,RightTitle,SideNote,CountryHint,ModeHint,PageNetwork,PageDevice,WelcomeNote};
 struct Completion {bool success=false,listing=false,detecting=false;std::wstring text;fs::path output;Json inventory;};
 static COLORREF ink=RGB(29,43,66),muted=RGB(105,119,139),blue=RGB(42,98,226),background=ui::canvas;
 struct App {
     HWND window=nullptr;std::map<int,HWND> controls;std::vector<HWND> labels;std::map<int,HWND> fieldLabels;HFONT normal=nullptr,smallFont=nullptr,heading=nullptr,title=nullptr;
     HBRUSH backBrush=CreateSolidBrush(background),whiteBrush=CreateSolidBrush(RGB(255,255,255));
-    double scale=1;bool running=false,closing=false,demo=false,deviceSupported=false,firmwareReadable=false;std::atomic_bool cancel{false};std::thread worker;fs::path lastOutput,cachedSource;Json cachedInventory;bool manualMode=false;int page=1,creatingPage=0,detectedMode=0;std::map<int,std::vector<HWND>> pageWidgets;std::map<HWND,RECT> editBoxes;
+    double scale=1;bool running=false,closing=false,demo=false,deviceSupported=false,firmwareReadable=false,created=false;std::atomic_bool cancel{false};std::thread worker;fs::path lastOutput,cachedSource;Json cachedInventory;bool manualMode=false;int page=1,creatingPage=0,detectedMode=0,viewHeight=0;std::map<int,std::vector<HWND>> pageWidgets;std::map<HWND,RECT> editBoxes;
     ~App(){cancel=true;if(worker.joinable())worker.join();for(auto f:{normal,smallFont,heading,title})if(f)DeleteObject(f);DeleteObject(backBrush);DeleteObject(whiteBrush);}
     int s(int value)const{return int(value*scale+0.5);}
     std::wstring get(int id){int n=GetWindowTextLengthW(controls.at(id));std::wstring text(n+1,0);GetWindowTextW(controls.at(id),text.data(),n+1);text.resize(n);return text;}
@@ -50,8 +50,22 @@ struct App {
     void button(const wchar_t* text,int id,int x,int y,int w,int h=38){
         auto c=control(L"BUTTON",text,id,x,y,w,h,BS_OWNERDRAW|WS_TABSTOP);SetWindowSubclass(c,ui::buttonProc,1,0);
     }
+    bool hasSource(){return controls.count(File)&&!get(File).empty();}
+    void resizeView(bool source){
+        int height=source?764:572;if(viewHeight==height)return;viewHeight=height;
+        RECT frame{0,0,s(1040),s(height)},position,work;
+        AdjustWindowRectEx(&frame,DWORD(GetWindowLongPtrW(window,GWL_STYLE)),FALSE,0);GetWindowRect(window,&position);
+        auto monitor=MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST);MONITORINFO info{sizeof(info)};
+        if(GetMonitorInfoW(monitor,&info))work=info.rcWork;else SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
+        int width=frame.right-frame.left,totalHeight=frame.bottom-frame.top;
+        int y=std::max(work.top,std::min(position.top,work.bottom-totalHeight));
+        SetWindowPos(window,nullptr,position.left,y,width,totalHeight,SWP_NOZORDER|SWP_NOACTIVATE);
+    }
     void showPage(int selected){
-        page=selected;for(auto& [group,widgets]:pageWidgets)for(auto c:widgets)ShowWindow(c,group==page?SW_SHOW:SW_HIDE);
+        page=selected;if(!created)return;bool source=hasSource();
+        for(auto& [group,widgets]:pageWidgets)for(auto c:widgets)ShowWindow(c,(source?(group==3||group==page):group==-1)?SW_SHOW:SW_HIDE);
+        MoveWindow(controls[BrowseFile],s(source?872:426),s(source?109:307),s(source?124:188),s(source?38:46),TRUE);
+        ShowWindow(controls[BrowseFile],SW_SHOW);resizeView(source);
         updateMode();InvalidateRect(controls[PageNetwork],nullptr,TRUE);InvalidateRect(controls[PageDevice],nullptr,TRUE);InvalidateRect(window,nullptr,FALSE);
     }
     int effectiveMode(){int selected=int(SendMessageW(controls[RoutingMode],CB_GETCURSEL,0,0));return selected==0?detectedMode:selected;}
@@ -69,8 +83,9 @@ struct App {
         smallFont=CreateFontW(-s(12),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
         heading=CreateFontW(-s(17),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
         title=CreateFontW(-s(28),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
-        label(L"固件转换",32,22,400,40,title);label(L"保留原有插件，为刷入后的网络提前做好设置。",34,67,680,22,smallFont);
-        label(L"KWRT  /  Windows x64",680,35,210,24,smallFont);button(L"支持机型",Devices,902,23,114);
+        label(L"固件转换",32,22,400,40,title);label(L"保留插件，提前设置拨号和 Wi-Fi。",34,67,680,22,smallFont);
+        button(L"支持机型",Devices,902,23,114);
+        creatingPage=3;
         label(L"原始固件",44,119,100);edit(File,160,108,578);button(L"重新识别",Detect,752,109,108);button(L"选择固件",BrowseFile,872,109,124);
         label(L"保存到",44,173,100);edit(Output,160,162,700);button(L"选择目录",BrowseOutput,872,163,124);
         auto device=control(L"STATIC",L"支持拖入文件，或点击“选择固件”。",DeviceInfo,160,216,663,22,SS_LEFT|SS_ENDELLIPSIS);SendMessageW(device,WM_SETFONT,(WPARAM)smallFont,TRUE);
@@ -115,7 +130,7 @@ struct App {
         SendMessageW(controls[Hostname],EM_SETCUEBANNER,FALSE,(LPARAM)L"留空保留原主机名");
         SendMessageW(controls[Signature],EM_SETCUEBANNER,FALSE,(LPARAM)L"留空保留原签名");
 
-        creatingPage=0;
+        creatingPage=3;
         auto st=control(L"STATIC",L"请选择固件",Status,44,637,250,28,SS_LEFT);SendMessageW(st,WM_SETFONT,(WPARAM)heading,TRUE);
         auto detail=control(L"STATIC",L"选择固件后会自动识别型号、网络模式和插件。",Detail,308,637,684,36,SS_LEFT);SendMessageW(detail,WM_SETFONT,(WPARAM)smallFont,TRUE);
         control(PROGRESS_CLASSW,L"",ProgressBar,44,677,948,5,PBS_SMOOTH);SendMessageW(controls[ProgressBar],PBM_SETRANGE,0,MAKELPARAM(0,100));SetWindowTheme(controls[ProgressBar],L"",L"");SendMessageW(controls[ProgressBar],PBM_SETBARCOLOR,0,ui::accent);SendMessageW(controls[ProgressBar],PBM_SETBKCOLOR,0,RGB(236,240,247));
@@ -123,29 +138,57 @@ struct App {
         button(L"保存设置",Save,191,708,102);button(L"读取设置",Load,305,708,102);
         button(L"打开结果",OpenOutput,609,708,120);button(L"取消",Cancel,741,708,90);button(L"开始转换",Start,845,706,171,44);
         EnableWindow(controls[Cancel],FALSE);EnableWindow(controls[OpenOutput],FALSE);EnableWindow(controls[Start],FALSE);
+        creatingPage=-1;
+        auto welcome=control(L"STATIC",L"选择要转换的固件",0,64,215,912,40,SS_CENTER);SendMessageW(welcome,WM_SETFONT,(WPARAM)title,TRUE);
+        control(L"STATIC",L"将 KWRT 固件拖到这里，或点击下方按钮",0,64,263,912,28,SS_CENTER);
+        auto note=control(L"STATIC",L"支持 sysupgrade.bin 固件",WelcomeNote,64,373,912,24,SS_CENTER);SendMessageW(note,WM_SETFONT,(WPARAM)smallFont,TRUE);
+        for(int step=0;step<3;step++){
+            const wchar_t* names[]={L"选择固件",L"配置网络",L"生成固件"};
+            const wchar_t* descriptions[]={L"自动识别机型，查看插件",L"预设拨号、Wi-Fi 和后台",L"保留原有插件，另存新固件"};
+            int x=88+step*324;label(names[step],x,466,240,26,heading);label(descriptions[step],x,497,246,24,smallFont);
+        }
+        creatingPage=0;
         Json p={{"lan_ip","192.168.6.1"},{"netmask","255.255.255.0"},{"pppoe_username","demo-user"},{"pppoe_password","demo-password"},{"wifi_ssid","MyHome"},{"wifi_password","demo-wifi-key"},{"admin_password","demo-admin"},{"country","CN"},{"ipv6",true}};
         if(demo){loadProfile(p);}
-        else if(fs::exists(appDir/L"profile.json")){try{loadProfile(readJson(appDir/L"profile.json"));}catch(const Error& e){set(Detail,wide(e.what()));}}
+        else if(fs::exists(appDir/L"profile.json")){try{loadProfile(readJson(appDir/L"profile.json"));set(WelcomeNote,L"已载入上次设置，选择固件后可继续编辑");}catch(const Error& e){set(Detail,wide(e.what()));}}
         else{set(Lan,L"192.168.6.1");set(Mask,L"255.255.255.0");set(Country,L"CN");check(Ipv6,true);}
         set(Output,(appDir/L"生成固件").wstring());
         if(!demo&&fs::exists(appDir/L"ui.json")){try{auto state=readJson(appDir/L"ui.json");auto source=wide(state.value("input",std::string()));if(fs::is_regular_file(source))set(File,source);}catch(...) {}}
-        showPage(1);DragAcceptFiles(window,TRUE);
+        created=true;showPage(1);DragAcceptFiles(window,TRUE);if(hasSource())SetTimer(window,1,500,nullptr);
     }
     void paint(){
         PAINTSTRUCT ps;HDC dc=BeginPaint(window,&ps);RECT whole;GetClientRect(window,&whole);FillRect(dc,&whole,backBrush);
         auto card=[&](RECT r){r={s(r.left),s(r.top),s(r.right),s(r.bottom)};ui::rounded(dc,r,RGB(255,255,255),ui::line,s(16));};
-        card({24,96,1016,250});card({24,622,1016,695});
-        if(page==1){card({24,316,516,610});card({532,316,1016,610});}else card({24,316,1016,610});
+        if(!hasSource()){
+            card({24,112,1016,428});
+            auto brush=CreateSolidBrush(ui::tint);auto pen=CreatePen(PS_SOLID,s(2),ui::accent);
+            auto oldBrush=SelectObject(dc,brush),oldPen=SelectObject(dc,GetStockObject(NULL_PEN));
+            Ellipse(dc,s(484),s(134),s(556),s(206));
+            SelectObject(dc,GetStockObject(NULL_BRUSH));SelectObject(dc,pen);
+            POINT file[]={{s(507),s(150)},{s(524),s(150)},{s(534),s(160)},{s(534),s(189)},{s(507),s(189)},{s(507),s(150)}};
+            Polyline(dc,file,6);MoveToEx(dc,s(524),s(150),nullptr);LineTo(dc,s(524),s(160));LineTo(dc,s(534),s(160));
+            MoveToEx(dc,s(514),s(170),nullptr);LineTo(dc,s(527),s(170));MoveToEx(dc,s(514),s(179),nullptr);LineTo(dc,s(527),s(179));
+            SelectObject(dc,oldBrush);SelectObject(dc,oldPen);DeleteObject(brush);DeleteObject(pen);
+            auto font=SelectObject(dc,heading);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,ui::accent);
+            for(int step=0;step<3;step++){
+                RECT badge{s(36+step*324),s(469),s(70+step*324),s(503)};ui::rounded(dc,badge,ui::tint,ui::tint,s(12));
+                auto number=std::to_wstring(step+1);DrawTextW(dc,number.c_str(),-1,&badge,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            }
+            SelectObject(dc,font);
+        }else{
+            card({24,96,1016,250});card({24,622,1016,695});
+            if(page==1){card({24,316,516,610});card({532,316,1016,610});}else card({24,316,1016,610});
+        }
         for(auto& [field,box]:editBoxes)if(IsWindowVisible(field)){
             bool focused=GetFocus()==field;ui::rounded(dc,box,RGB(255,255,255),focused?ui::accent:ui::line,s(10),focused?2:1);
         }
         EndPaint(window,&ps);
     }
     void drawButton(DRAWITEMSTRUCT* d){
-        ui::button(d,normal,scale,d->CtlID==Start,(d->CtlID==PageNetwork&&page==1)||(d->CtlID==PageDevice&&page==2));
+        ui::button(d,normal,scale,d->CtlID==Start||(d->CtlID==BrowseFile&&!hasSource()),(d->CtlID==PageNetwork&&page==1)||(d->CtlID==PageDevice&&page==2));
     }
     void updateMode(){if(!controls.count(RoutingMode)||!controls.count(SideNote))return;
-        int mode=effectiveMode();bool side=mode==2,router=mode==1,visible=page==1;
+        int mode=effectiveMode();bool side=mode==2,router=mode==1,visible=hasSource()&&page==1;
         for(int id:{Account,PppPassword,Ssid,WifiPassword,Country}){ShowWindow(controls[id],visible&&router?SW_SHOW:SW_HIDE);ShowWindow(fieldLabels[id],visible&&router?SW_SHOW:SW_HIDE);}
         for(int id:{SideGateway,SideDns}){ShowWindow(controls[id],visible&&side?SW_SHOW:SW_HIDE);ShowWindow(fieldLabels[id],visible&&side?SW_SHOW:SW_HIDE);}
         ShowWindow(controls[SideDhcp],visible&&side?SW_SHOW:SW_HIDE);ShowWindow(controls[SideNote],visible&&!router?SW_SHOW:SW_HIDE);
@@ -154,6 +197,15 @@ struct App {
         set(SideNote,side?L"通过 LAN 口连接主路由。\n保留固件原有的 Wi-Fi，无需填写无线设置。":L"选择固件，等待网络模式识别。\n也可以在左侧手动选择主路由或旁路由。");
         set(ModeHint,side?L"开启前请关闭主路由 DHCP":router?L"生成 2.4G 和 5G 双频 Wi-Fi":L"");
         EnableWindow(controls[Start],!running&&deviceSupported&&mode>0);InvalidateRect(window,nullptr,FALSE);
+    }
+    void sourceChanged(){
+        if(!created)return;KillTimer(window,1);deviceSupported=false;firmwareReadable=false;manualMode=false;detectedMode=0;
+        cachedInventory=nullptr;cachedSource.clear();setAutomaticLabel();set(ViewPlugins,L"查看插件");
+        SendMessageW(controls[RoutingMode],CB_SETCURSEL,0,0);SendMessageW(controls[ProgressBar],PBM_SETPOS,0,0);
+        set(Status,hasSource()?L"等待识别固件":L"请选择固件");set(DeviceInfo,L"选择固件后会显示机型、版本和插件。");
+        set(Detail,L"选择固件后会自动识别型号、网络模式和插件。");showPage(1);
+        EnableWindow(controls[Start],FALSE);EnableWindow(controls[ViewPlugins],FALSE);
+        if(hasSource())SetTimer(window,1,500,nullptr);else SetFocus(controls[BrowseFile]);
     }
     void applyDetectedMode(const Json& inventory){auto defaults=inventory["network_defaults"];auto mode=defaults["mode"].get<std::string>();
         detectedMode=mode=="side"?2:mode=="router"?1:0;setAutomaticLabel();
@@ -171,7 +223,7 @@ struct App {
             PostMessageW(window,WM_FINISH,0,(LPARAM)done);
         });
     }
-    void detect(){if(running)return;deviceSupported=false;firmwareReadable=false;EnableWindow(controls[Start],FALSE);EnableWindow(controls[ViewPlugins],FALSE);try{fs::path path=get(File);if(!fs::is_regular_file(path)){set(DeviceInfo,L"请选择一个本地原始固件。");return;}auto info=inspectFirmware(path);deviceSupported=info["conversion_supported"];firmwareReadable=true;EnableWindow(controls[ViewPlugins],TRUE);
+    void detect(){if(running)return;KillTimer(window,1);deviceSupported=false;firmwareReadable=false;EnableWindow(controls[Start],FALSE);EnableWindow(controls[ViewPlugins],FALSE);try{fs::path path=get(File);if(!fs::is_regular_file(path)){set(Status,hasSource()?L"找不到固件文件":L"请选择固件");set(DeviceInfo,L"请选择一个本地原始固件。");set(Detail,L"点击“选择固件”，或将固件文件拖入窗口。");return;}auto info=inspectFirmware(path);deviceSupported=info["conversion_supported"];firmwareReadable=true;EnableWindow(controls[ViewPlugins],TRUE);
         set(DeviceInfo,wide(info["distribution"].get<std::string>()+" / "+info["version"].get<std::string>()+" / "+info["device"].get<std::string>()));
         if(deviceSupported){set(Status,L"固件可以转换");set(Detail,L"将转换为原厂分区（stock）版本，原有插件全部保留。");}
         else{set(Status,L"暂不支持这款固件");set(Detail,L"这款固件目前无法转换。点击“支持机型”查看可用的型号和版本。");}
@@ -217,11 +269,11 @@ struct App {
 };
 static LRESULT CALLBACK proc(HWND w,UINT m,WPARAM wp,LPARAM lp){auto app=(App*)GetWindowLongPtrW(w,GWLP_USERDATA);if(m==WM_NCCREATE){app=(App*)((CREATESTRUCTW*)lp)->lpCreateParams;app->window=w;SetWindowLongPtrW(w,GWLP_USERDATA,(LONG_PTR)app);}if(!app)return DefWindowProcW(w,m,wp,lp);
     switch(m){case WM_CREATE:try{app->create();}catch(...){return -1;}return 0;case WM_PAINT:app->paint();return 0;case WM_ERASEBKGND:return 1;
-    case WM_CTLCOLORSTATIC:case WM_CTLCOLORBTN:{auto dc=(HDC)wp;SetBkMode(dc,TRANSPARENT);SetTextColor(dc,ink);RECT r;GetWindowRect((HWND)lp,&r);MapWindowPoints(nullptr,w,(POINT*)&r,2);bool card=r.top>=app->s(96)&&((r.top<app->s(250))||(r.top>=app->s(316)&&r.top<app->s(695)));return (LRESULT)(card?app->whiteBrush:app->backBrush);}
+    case WM_CTLCOLORSTATIC:case WM_CTLCOLORBTN:{auto dc=(HDC)wp;SetBkMode(dc,TRANSPARENT);SetTextColor(dc,GetCurrentObject(dc,OBJ_FONT)==app->smallFont?muted:ink);RECT r;GetWindowRect((HWND)lp,&r);MapWindowPoints(nullptr,w,(POINT*)&r,2);bool card=app->hasSource()?r.top>=app->s(96)&&((r.top<app->s(250))||(r.top>=app->s(316)&&r.top<app->s(695))):r.top>=app->s(112)&&r.top<app->s(428);return (LRESULT)(card?app->whiteBrush:app->backBrush);}
     case WM_CTLCOLOREDIT:SetTextColor((HDC)wp,ink);SetBkColor((HDC)wp,RGB(255,255,255));return (LRESULT)app->whiteBrush;
     case WM_DRAWITEM:app->drawButton((DRAWITEMSTRUCT*)lp);return TRUE;
-    case WM_COMMAND:if(LOWORD(wp)==RoutingMode&&HIWORD(wp)==CBN_SELCHANGE){app->manualMode=SendMessageW(app->controls[RoutingMode],CB_GETCURSEL,0,0)!=0;if(!app->manualMode&&!app->cachedInventory.is_null())app->applyDetectedMode(app->cachedInventory);else {app->updateMode();app->set(Detail,L"已使用手动选择的网络模式。");}
-        if(app->deviceSupported)app->set(Status,app->effectiveMode()==2?L"旁路由 · 已就绪":app->effectiveMode()==1?L"主路由 · 已就绪":L"请选择网络模式");return 0;}if(LOWORD(wp)==File&&HIWORD(wp)==EN_CHANGE){app->deviceSupported=false;app->firmwareReadable=false;app->manualMode=false;app->detectedMode=0;app->setAutomaticLabel();app->cachedInventory=nullptr;app->set(ViewPlugins,L"查看插件");SendMessageW(app->controls[RoutingMode],CB_SETCURSEL,0,0);app->updateMode();EnableWindow(app->controls[Start],FALSE);EnableWindow(app->controls[ViewPlugins],FALSE);SetTimer(w,1,500,nullptr);return 0;}if(HIWORD(wp)==BN_CLICKED)app->command(LOWORD(wp));return 0;
+    case WM_COMMAND:if(LOWORD(wp)==RoutingMode&&HIWORD(wp)==CBN_SELCHANGE){app->manualMode=SendMessageW(app->controls[RoutingMode],CB_GETCURSEL,0,0)!=0;if(!app->manualMode&&!app->cachedInventory.is_null())app->applyDetectedMode(app->cachedInventory);else {app->updateMode();app->set(Detail,app->manualMode?L"已使用手动选择的网络模式。":L"选择固件后会自动识别型号、网络模式和插件。");}
+        if(app->deviceSupported)app->set(Status,app->effectiveMode()==2?L"旁路由 · 已就绪":app->effectiveMode()==1?L"主路由 · 已就绪":L"请选择网络模式");return 0;}if(LOWORD(wp)==File&&HIWORD(wp)==EN_CHANGE){app->sourceChanged();return 0;}if(HIWORD(wp)==BN_CLICKED)app->command(LOWORD(wp));return 0;
     case WM_TIMER:if(wp==1){KillTimer(w,1);app->detect();}return 0;
     case WM_DROPFILES:{auto drop=(HDROP)wp;if(!app->running&&DragQueryFileW(drop,0xffffffff,nullptr,0)==1){wchar_t path[32768];DragQueryFileW(drop,0,path,32768);app->set(File,path);}DragFinish(drop);return 0;}
     case WM_PROGRESS:{std::unique_ptr<Progress> p((Progress*)lp);SendMessageW(app->controls[ProgressBar],PBM_SETPOS,p->percent,0);app->set(Status,wide(p->text));return 0;}
@@ -261,5 +313,8 @@ int WINAPI wWinMain(HINSTANCE h,HINSTANCE,LPWSTR,int show){instance=h;wchar_t ex
     WNDCLASSEXW c{sizeof(c)};c.lpfnWndProc=proc;c.hInstance=h;c.lpszClassName=L"KwrtStudio";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hIcon=LoadIconW(h,MAKEINTRESOURCEW(1));if(!c.hIcon)c.hIcon=LoadIconW(nullptr,IDI_APPLICATION);c.hIconSm=c.hIcon;RegisterClassExW(&c);
     RECT r{0,0,app.s(1040),app.s(764)};AdjustWindowRectEx(&r,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,FALSE,0);
     auto window=CreateWindowExW(0,c.lpszClassName,L"Kwrt Studio · KWRT 固件转换",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,(work.right-r.right+r.left)/2,(work.bottom-r.bottom+r.top)/2,r.right-r.left,r.bottom-r.top,nullptr,nullptr,h,&app);
-    if(!window){MessageBoxW(nullptr,L"软件无法启动，请重新完整解压后再试。",L"Kwrt Studio",MB_OK);return 1;}ShowWindow(window,show);UpdateWindow(window);MSG msg;while(GetMessageW(&msg,nullptr,0,0)>0){if(!IsDialogMessageW(window,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}CoUninitialize();return int(msg.wParam);
+    if(!window){MessageBoxW(nullptr,L"软件无法启动，请重新完整解压后再试。",L"Kwrt Studio",MB_OK);return 1;}
+    GetWindowRect(window,&r);SetWindowPos(window,nullptr,work.left+(work.right-work.left-(r.right-r.left))/2,work.top+(work.bottom-work.top-(r.bottom-r.top))/2,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+    ShowWindow(window,show);UpdateWindow(window);if(!app.hasSource())SetFocus(app.controls[BrowseFile]);
+    MSG msg;while(GetMessageW(&msg,nullptr,0,0)>0){if(!IsDialogMessageW(window,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}CoUninitialize();return int(msg.wParam);
 }
