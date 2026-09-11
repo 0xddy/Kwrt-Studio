@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "router_check.hpp"
 
 namespace ax {
 Json selfTest(){Json tests=Json::array();
@@ -47,6 +48,7 @@ Json selfTest(){Json tests=Json::array();
     sampleFile("etc/uci-defaults/zzzz-local-network","LOCAL_ROUTING_MODE='side'\nSIDE_GATEWAY='192.168.6.254'\nSIDE_DNS='1.1.1.1 8.8.8.8'\nSIDE_DHCP='1'\n");
     auto recorded=detectNetworkDefaults(sample);check("reread side gateway DNS and DHCP",recorded["gateway"]=="192.168.6.254"&&recorded["dns"]=="1.1.1.1 8.8.8.8"&&recorded["dhcp"]==true);
     side["side_dns"]="   ";check("blank DNS falls back to gateway",renderInit(side,"@@SETTINGS@@").find("SIDE_DNS=''\n")!=std::string::npos);
+    for(const auto& test:routerCheckTests())tests.push_back(test);
     return {{"passed",tests.size()},{"failed",0},{"tests",tests}};
 }
 }

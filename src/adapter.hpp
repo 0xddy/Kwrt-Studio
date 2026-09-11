@@ -23,6 +23,8 @@ public:
     virtual uint64_t availableDataBytes(uint64_t kernelBytes, uint64_t rootBytes) const = 0;
     virtual Json outputMetadata(Json original) const = 0;
     virtual Json partitionDescription() const = 0;
+    // Optional advisory only; never participates in conversion eligibility.
+    virtual Json routerAdvice(const Json&) const { return nullptr; }
 };
 const std::vector<std::unique_ptr<DeviceAdapter>>& deviceAdapters();
 const DeviceAdapter* findAdapter(const Json& metadata);

@@ -1,5 +1,6 @@
 #include "adapter.hpp"
 #include "package_view.hpp"
+#include "router_view.hpp"
 #include "ui.hpp"
 #include <commctrl.h>
 #include <commdlg.h>
@@ -24,7 +25,7 @@ using namespace ax;
 static HINSTANCE instance;
 static fs::path appDir;
 static constexpr UINT WM_PROGRESS=WM_APP+1,WM_FINISH=WM_APP+2;
-enum Id {File=100,Output,BrowseFile,BrowseOutput,Account,PppPassword,Lan,Mask,Ssid,WifiPassword,AdminPassword,Country,Ipv6,ShowPasswords,Remember,Start,Cancel,OpenOutput,Save,Load,ProgressBar,Status,Detail,DeviceInfo,Detect,Devices,ViewPlugins,Hostname,Signature,RemoveAuthorLinks,RoutingMode,SideGateway,SideDns,SideDhcp,RightTitle,SideNote,CountryHint,ModeHint,PageNetwork,PageDevice,WelcomeNote};
+enum Id {File=100,Output,BrowseFile,BrowseOutput,Account,PppPassword,Lan,Mask,Ssid,WifiPassword,AdminPassword,Country,Ipv6,ShowPasswords,Remember,Start,Cancel,OpenOutput,Save,Load,ProgressBar,Status,Detail,DeviceInfo,Detect,Devices,ViewPlugins,Hostname,Signature,RemoveAuthorLinks,RoutingMode,SideGateway,SideDns,SideDhcp,RightTitle,SideNote,CountryHint,ModeHint,PageNetwork,PageDevice,WelcomeNote,CheckRouter};
 struct Completion {bool success=false,listing=false,detecting=false;std::wstring text;fs::path output;Json inventory;};
 static COLORREF ink=RGB(29,43,66),muted=RGB(105,119,139),blue=RGB(42,98,226),background=ui::canvas;
 struct App {
@@ -84,7 +85,7 @@ struct App {
         heading=CreateFontW(-s(17),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
         title=CreateFontW(-s(28),0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");
         label(L"固件转换",32,22,400,40,title);label(L"保留插件，提前设置拨号和 Wi-Fi。",34,67,680,22,smallFont);
-        button(L"支持机型",Devices,902,23,114);
+        button(L"检测路由器",CheckRouter,750,23,138);button(L"支持机型",Devices,902,23,114);
         creatingPage=3;
         label(L"原始固件",44,119,100);edit(File,160,108,578);button(L"重新识别",Detect,752,109,108);button(L"选择固件",BrowseFile,872,109,124);
         label(L"保存到",44,173,100);edit(Output,160,162,700);button(L"选择目录",BrowseOutput,872,163,124);
@@ -260,7 +261,7 @@ struct App {
         Request r{source,dest,appDir,p,16};if(worker.joinable())worker.join();cancel=false;setRunning(true);set(Status,L"正在转换");set(Detail,L"正在电脑上处理固件，完成后可打开结果文件夹。");SendMessageW(controls[ProgressBar],PBM_SETPOS,0,0);
         worker=std::thread([this,r](){auto done=new Completion;try{auto result=convert(r,[this](const Progress& p){PostMessageW(window,WM_PROGRESS,0,(LPARAM)new Progress(p));},cancel);done->success=true;done->output=result.firmware.parent_path();done->text=L"固件已生成，原有插件全部保留。刷入时请取消“保留配置”。";}catch(const Error& e){done->text=wide(e.what());}catch(...){done->text=L"转换未完成。请检查固件是否完整，以及输出文件夹是否可以写入。";}PostMessageW(window,WM_FINISH,0,(LPARAM)done);});
     }catch(const Error& e){error(wide(e.what()));}catch(...){error(L"无法读取或保存文件，请检查文件位置和剩余空间。");}}
-    void command(int id){try{switch(id){case PageNetwork:showPage(1);break;case PageDevice:showPage(2);break;case BrowseFile:browse(false);break;case BrowseOutput:browse(true);break;case Detect:detect();break;case Devices:catalog();break;case ViewPlugins:viewPlugins();break;case Start:start();break;case Cancel:cancel=true;set(Status,L"正在取消…");EnableWindow(controls[Cancel],FALSE);break;
+    void command(int id){try{switch(id){case CheckRouter:showRouterViewer(window,fs::path(get(File)),normal,scale);break;case PageNetwork:showPage(1);break;case PageDevice:showPage(2);break;case BrowseFile:browse(false);break;case BrowseOutput:browse(true);break;case Detect:detect();break;case Devices:catalog();break;case ViewPlugins:viewPlugins();break;case Start:start();break;case Cancel:cancel=true;set(Status,L"正在取消…");EnableWindow(controls[Cancel],FALSE);break;
         case ShowPasswords:for(int field:{PppPassword,WifiPassword,AdminPassword}){SendMessageW(controls[field],EM_SETPASSWORDCHAR,checked(ShowPasswords)?0:L'●',0);InvalidateRect(controls[field],nullptr,TRUE);}break;
         case Save:{auto p=profile();validateProfile(p);write(appDir/L"profile.json",p.dump(2)+'\n');set(Detail,L"设置已保存，下次打开软件会自动填好。");break;}
         case Load:loadProfile(readJson(appDir/L"profile.json"));set(Detail,L"已恢复上次保存的设置。");break;

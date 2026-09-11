@@ -93,3 +93,17 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 ## 验证
 
 自检覆盖校验算法、TAR/FDT、配置校验、Shell 转义、软件包解析及模式识别。转换结果已完成独立解包、全量文件比对和 ARM 初始化隔离测试；这些检查不替代真实设备的启动、无线及插件功能测试。
+
+## 可选 SSH 检测
+
+`router_view.cpp` 提供独立窗口，不改变 `Request`、转换按钮条件或命令行转换流程。未选固件时可查看路由器布局；选定固件后再比对对应的设备适配器和镜像结构。
+
+`ssh_client.cpp` 使用静态 libssh2 / Windows CNG，支持 IPv4、IPv6 地址和密码认证。默认网关来自 Windows IPv4 路由表，筛选已连接的以太网与 Wi-Fi 接口，按路由与接口的合计 metric 排序；手动填写不会被后台刷新覆盖。SSH 当前支持 RSA / ECDSA，暂不支持仅提供 Ed25519 的服务器或密钥登录。
+
+登录前核对 SHA-256 主机指纹，已确认的指纹仅保留在当前程序会话。密码不写入配置、报告、日志或命令参数。连接、登录和查询分别有超时，可取消。查询只执行固定的只读命令，各文件通过独立 SSH 通道传输，不要求路由器提供 base64，不上传任何文件。
+
+读取 `/tmp/sysinfo/board_name`、`/proc/mtd`、`/sys/firmware/fdt`、`/proc/cmdline`、`/proc/mounts` 及可用的 MTD sysfs 偏移。`router_check.cpp` 解析有界数据，`DeviceAdapter::routerAdvice()` 保存各机型规则。不得根据 `/proc/mtd` 列表累加偏移，因为父设备可能与分区重叠。
+
+AX6000 规则同时核对板号、设备树 compatible、NMBM、全部分区的位置和大小、实际 MTD 大小及擦除块；若 sysfs 提供偏移也必须一致。恢复环境、分区覆盖参数、重复分区、缺失或矛盾信息均不作匹配结论。返回结果只确认观测到的布局，不能证明引导程序兼容，也不作为刷写许可。
+
+原生自检包含 stock、110 MiB UBI、同容量不同偏移、父子 MTD 重叠、未知分区、重复记录、设备树损坏、恢复启动、错误板号及输入固件错误等用例。SSH 传输另经本机 RSA/ECDSA 测试服务器验证完整读取、指纹变化、错误密码、取消、超时和中途断开。

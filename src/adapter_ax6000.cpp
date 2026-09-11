@@ -70,6 +70,42 @@ static std::vector<std::string> patchRoot(Archive& a,const Json& p,uint32_t epoc
 
 class RedmiAx6000 final : public DeviceAdapter {
 public:
+    Json routerAdvice(const Json& s) const override {
+        auto board=s.value("board",std::string());
+        if(board!=oldBoard&&board!=newBoard)return nullptr;
+        auto unknown=[](const char* reason){return Json{{"level","unknown"},{"layout","未确认"},{"title","分区信息还不足以判断"},{"advice",reason}};};
+        if(!s.value("tree_valid",false))return unknown("没有取得完整设备树，无法核对分区起始位置。请在正常系统启动后使用 root 账户检测。");
+        const auto compatible=s.value("compatible",std::string());
+        if(compatible!=z(board)+z("mediatek,mt7986a")||!s.value("nmbm",false))return unknown("系统型号和设备树信息不一致，或未识别到预期的 NMBM 结构。请按设备刷机说明核对。");
+        const auto cmd=s.value("cmdline",std::string());
+        if(cmd.empty()||cmd.find("mtdparts=")!=cmd.npos)return unknown("启动参数缺失或覆盖了设备树分区，当前无法确认实际分区位置。");
+        bool persistent=false;std::istringstream mounts(s.value("mounts",std::string()));std::string line;
+        while(std::getline(mounts,line)){std::istringstream row(line);std::string source,path,type;row>>source>>path>>type;
+            if((path=="/rom"||path=="/")&&(type=="squashfs"||type=="ubifs"))persistent=true;}
+        if(!persistent)return unknown("尚未确认系统从闪存启动。请退出临时恢复系统后重新检测。");
+        std::map<uint32_t,std::pair<std::string,uint32_t>> common={{0,{"BL2",0x100000}},{0x100000,{"Nvram",0x40000}},{0x140000,{"Bdata",0x40000}},{0x180000,{"Factory",0x200000}},{0x380000,{"FIP",0x200000}},{0x580000,{"crash",0x40000}},{0x5c0000,{"crash_log",0x40000}}};
+        auto stock=common,single=common;stock[0x600000]={"ubi_kernel",0x1e00000};stock[0x2400000]={"ubi",0x5000000};single[0x600000]={"ubi",0x6e00000};
+        std::map<uint32_t,std::pair<std::string,uint32_t>> actual;
+        for(const auto& p:s.at("tree_partitions")){
+            if(p.value("parent",std::string())!=partition)return unknown("设备树出现了其他闪存分区组，尚未验证这种布局。");
+            uint32_t offset=p.at("offset"),size=p.at("size");auto name=p.at("name").get<std::string>();
+            if(!actual.emplace(offset,std::make_pair(name,size)).second)return unknown("设备树中出现重叠的起始位置。");
+            size_t count=0;
+            for(const auto& m:s.at("partitions"))if(m.at("name")==name){
+                count++;if(m.at("size")!=size||m.at("erase")!=0x20000||(m.contains("offset")&&m.at("offset")!=offset))return unknown("设备树与当前 MTD 分区信息不一致，无法确认布局。");
+            }
+            if(count!=1)return unknown("实际 MTD 分区缺失或存在同名分区，无法确认布局。");
+        }
+        for(const auto& m:s.at("partitions")){
+            bool found=false;for(const auto& entry:actual)if(entry.second.first==m.at("name"))found=true;
+            // The old kernel also exposes its entire 128 MiB chip as spi0.1.
+            // It overlaps the child partitions and must not be summed into their offsets.
+            if(!found&&!(m.at("name")=="spi0.1"&&m.at("size")==0x8000000&&(!m.contains("offset")||m.at("offset")==0)))return unknown("当前 MTD 还包含未识别的分区，无法确认布局。");
+        }
+        if(actual==stock)return {{"level","match"},{"layout","stock · 内核 30 MiB + 系统 80 MiB"},{"title","分区与 stock 转换目标一致"},{"advice","当前分区的名称、位置和容量符合本工具的 AX6000 stock 布局。若所选固件也匹配，可参考此结果选择转换后的固件；无需再次调整分区。"}};
+        if(actual==single)return {{"level","mismatch"},{"layout","单 UBI · 110 MiB"},{"title","当前布局不需要本工具的 stock 转换"},{"advice","这台路由器使用单个 110 MiB UBI 分区。请选用与当前布局对应的固件，不要刷入本工具生成的 30 + 80 MiB stock 固件。"}};
+        return {{"level","mismatch"},{"layout","其他分区布局"},{"title","当前分区与 stock 转换目标不一致"},{"advice","分区位置或容量不符合本工具验证过的布局。请使用与当前分区对应的固件，不要直接刷入转换结果。"}};
+    }
     AdapterInfo info() const override {
         return {"redmi-ax6000.kwrt-110m-to-stock", "Xiaomi Redmi Router AX6000",
                 "NMBM / 单 UBI 110 MiB", "stock / 内核 30 MiB + 系统 80 MiB",
