@@ -1,50 +1,43 @@
+<div align="center">
+
 # Kwrt Studio
 
-将 KWRT 固件转换为设备对应的 stock 布局，解决固件与现有分区不匹配、刷机后反复设置网络的问题。
+**保留插件，刷机前配好网络。**
 
-转换时保留原有插件，可预先填写拨号账号、Wi-Fi、后台地址和密码，刷入后自动配置。也可直接查看固件中的插件及版本。
+KWRT 固件布局转换 · 网络预配置 · 插件查看
 
-## 支持范围
+[下载最新版](https://github.com/0xddy/Kwrt-Studio/releases/latest) · [更新记录](CHANGELOG.md) · [开发文档](docs/ADAPTERS.md)
 
-目前支持**红米 AX6000 的指定 KWRT 布局转换**：
+[![Release](https://img.shields.io/github/v/release/0xddy/Kwrt-Studio?style=flat-square&color=315be2)](https://github.com/0xddy/Kwrt-Studio/releases/latest)
+[![Build](https://github.com/0xddy/Kwrt-Studio/actions/workflows/windows.yml/badge.svg)](https://github.com/0xddy/Kwrt-Studio/actions/workflows/windows.yml)
 
-| 输入固件布局 | 输出固件布局 |
-| --- | --- |
-| 单个 110 MiB UBI 分区 | stock：30 MiB 内核分区 + 80 MiB 系统分区 |
+</div>
 
-已经是 stock 的固件、U-Boot mod 固件、其他机型及其他发行版暂不支持转换。插件查看支持 opkg / apk 软件包记录，与转换支持范围独立。
+![Kwrt Studio 固件选择界面](docs/images/home.jpg)
 
-stock 布局因设备而异，不能跨型号通用。工具只生成固件文件，不会修改路由器的 U-Boot 或执行刷机。
+## 一次设置，每次刷机都省心
 
-## 使用方法
+将 KWRT 固件适配到设备对应的 stock 布局，保留原有软件包，并将网络设置写入新固件，省去手动处理布局和刷机后重复配置。
 
-1. 解压下载包，运行 `KwrtStudio.exe`，保留同目录的 `tools` 文件夹。
-2. 在初始页选择或拖入 KWRT `sysupgrade.bin`，程序展开配置并自动识别。
-3. 在“网络设置”确认主路由或旁路由模式，填写网络信息；在“设备信息”设置主机名、签名和作者链接开关。
-4. 点击“开始转换”，完成后点击“打开结果”获取固件。原始文件不会被覆盖。
-5. 刷入时取消“保留配置”，以应用预设的初始化设置。
+| 功能 | 能做什么 |
+| :--- | :--- |
+| **固件转换** | 适配已支持设备的 stock 布局，保留原有插件，另存新固件。 |
+| **网络预设** | 提前设置拨号、Wi-Fi、后台地址和密码，自动区分主路由与旁路由。 |
+| **插件查看** | 搜索固件内的插件与软件包，查看版本、说明和安装状态。 |
+| **设备定制** | 设置主机名、自定义签名及 KWRT 作者链接开关。 |
 
-点击“保存设置”可保存填写内容，供下次转换复用。设置保存在程序旁的 `profile.json`，包含密码，请勿公开分享。
+## 兼容范围
 
-## 网络设置
+| 项目 | 当前支持 |
+| :--- | :--- |
+| 软件平台 | Windows 10 / 11 x64 |
+| 固件转换 | 红米 AX6000 · KWRT 单个 110 MiB UBI → stock 30 MiB 内核 + 80 MiB 系统 |
+| 插件查看 | 支持读取 opkg / apk 软件包记录 |
 
-| 模式 | 填写内容 | 刷入后的配置 |
-| --- | --- | --- |
-| 主路由 | 拨号账号和密码、LAN 地址、Wi-Fi、后台密码、IPv6 | PPPoE 拨号，Wi-Fi 名称分别添加 `_2.4G`、`_5G` 后缀 |
-| 旁路由 | LAN 地址、主路由网关、DNS、DHCP、后台密码 | 通过 LAN 接入主路由，停用 WAN 拨号，保留固件原有 Wi-Fi 设置 |
+已是 stock 的镜像、U-Boot mod 和其他机型暂不支持转换。Linux / macOS 暂未支持。
 
-支持自动识别模式，也可手动选择。旁路由模式不显示拨号和 Wi-Fi 输入框。
+---
 
-旁路由的 LAN 地址与主路由须在同一网段，且地址不同。DNS 留空时使用主路由网关。开启旁路由 DHCP 时，需关闭主路由 DHCP；关闭时，需自行设置客户端网关和 DNS。当前旁路由初始化仅配置 IPv4，并关闭 WAN6 及 LAN IPv6 分配与通告。
+[MIT License](LICENSE) · [第三方组件](THIRD-PARTY.md)
 
-## 查看插件
-
-选择固件后点击“查看插件”，可搜索名称、查看版本和安装状态，或切换为全部软件包。无需先转换固件。
-
-列表读取固件中的软件包记录：标记为未安装的项目不代表可用，手动复制且没有包记录的核心文件不会显示。转换过程不会删减插件，也不会额外安装插件或核心。
-
-## 开发与许可
-
-构建方法、命令行用法及新增机型说明见 [开发文档](docs/ADAPTERS.md)。
-
-原创代码采用 [MIT](LICENSE)，随包组件许可见 [THIRD-PARTY.md](THIRD-PARTY.md)。本项目与 KWRT、OpenWrt、ImmortalWrt 无官方隶属关系。
+本项目与 KWRT、OpenWrt、ImmortalWrt 无官方隶属关系。
