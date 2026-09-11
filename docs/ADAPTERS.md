@@ -1,4 +1,4 @@
-# 设备适配与开发
+# 开发与设备适配
 
 ## 架构
 
@@ -23,32 +23,32 @@
 
 ## 构建
 
-普通使用者直接运行 EXE。以下环境仅用于重新编译主程序：Visual Studio 2022 的 C++ 桌面开发工具、Windows SDK，以及 CMake 3.21 或更新版本。
-
-在仓库根目录运行：
+安装 Visual Studio 2022 C++ 桌面开发工具、Windows SDK 和 CMake 3.21+，在仓库根目录运行：
 
 ```powershell
 cmake -S . -B build -A x64
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
+cmake --install build --config Release --prefix dist/Kwrt-Studio
 ```
 
-结果为 `build/Release/KwrtStudio.exe`。构建自动复制仓库 `tools/` 到输出目录，不复制个人配置。代码使用静态 MSVC 运行库；程序需要随包的原生 SquashFS 组件，但无需用户安装开发环境。
+程序生成于 `build/Release/KwrtStudio.exe`；安装包目录为 `dist/Kwrt-Studio`，包含程序、组件、文档、示例配置及对应源码。GitHub Actions 执行相同的构建、测试和打包流程。
 
-`init_template.hpp` 和 `tool_hashes.hpp` 已作为源码提供，构建不运行 Python。替换压缩组件时，应重新核对依赖及许可证，并更新 `tool_hashes.hpp` 中的 SHA-256。
+主程序运行前会核对 `tools/` 组件的哈希。替换组件时，同步更新对应源码、许可证和 `tool_hashes.hpp` 中的 SHA-256。
 
-命令行测试入口：
+## 命令行
 
 ```text
 KwrtStudio.exe --self-test
 KwrtStudio.exe --catalog
 KwrtStudio.exe --inspect <firmware.bin>
+KwrtStudio.exe --packages <firmware.bin>
 KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty-directory>
 ```
 
-图形界面子系统的进程从 PowerShell 调用可能异步返回；自动测试请等待子进程结束并检查退出码。不要仅根据控制台已经返回就判断转换完成。
+配置示例见 `profile.example.json`。自动调用时须等待进程退出并检查退出码；PowerShell 提示符返回不代表转换完成。
 
-## 本版验证边界
+## AX6000 适配范围
 
 首个适配器验证的输入是本地测试用 KWRT 25.12-SNAPSHOT / mediatek/filogic / Redmi AX6000 镜像，SHA-256：
 
@@ -60,7 +60,7 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 
 这些数值仅属于此适配器。旧版 18.06、未知改版、其他 U-Boot 以及其他路由器，不能据此推断兼容。
 
-## 插件查看（1.1.0）
+## 插件查看
 
 `readFirmwarePackages()` 在只读流程中校验元数据、读取 SquashFS，再解析固件内的 opkg 或 apk 文本数据库。该流程不调用设备转换规则，不读取个人网络配置，也不改写输入镜像。
 
@@ -68,7 +68,7 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 
 命令行可用 `KwrtStudio.exe --packages <firmware.bin>` 输出 JSON 列表。新增的解析测试包含 CRLF、多行描述、安装状态、apk 文件记录、缺失版本和取消读取。
 
-## 网络模式与设备信息（1.2.0）
+## 网络模式与设备信息
 
 `network_mode.cpp` 只读取已知 UCI 配置和脚本中的常量，不执行镜像中的代码。明确的 `wizard.default.siderouter` 优先；动态值或冲突值返回 unknown。本工具生成的固件通过自己的模式常量识别。识别结果和网关、DNS、DHCP 默认值随 `--packages` 的 `network_defaults` 返回。未知模式需要用户选择。
 
@@ -78,4 +78,6 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 
 旁路由初始化保留固件无线设置，停用 WAN 拨号、WAN6 与 LAN 的 IPv6 地址分配/通告，设置 LAN 网关/DNS 和 LAN 区域 IPv4 masquerading。DHCP 开启时通告本机 LAN 地址为客户端的网关和 DNS；关闭时停止 LAN DHCP。用户应按自己的网络安排主路由 DHCP。初始化同步 KWRT 向导，避免向导重新应用相反的 DHCP 模式。
 
-验证记录区分编译、自检、独立解包、实际 ARM 程序的隔离测试和物理设备测试。本次没有刷写或重启路由器。UI 测试与固件初始化测试分别进行，交互测试不会连接路由器。
+## 验证
+
+自检覆盖校验算法、TAR/FDT、配置校验、Shell 转义、软件包解析及模式识别。转换结果已完成独立解包、全量文件比对和 ARM 初始化隔离测试；这些检查不替代真实设备的启动、无线及插件功能测试。

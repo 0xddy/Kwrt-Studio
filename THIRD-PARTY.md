@@ -1,6 +1,6 @@
 # Third-party components
 
-The main application is native C++/Win32. The following upstream components are included unchanged, except for being placed in the portable package directory:
+The following upstream components are bundled with Kwrt Studio:
 
 | Component | Source / license |
 |---|---|
@@ -10,6 +10,6 @@ The main application is native C++/Win32. The following upstream components are 
 | sqfs2tar / tar2sqfs | GPL-3.0-or-later, with separately licensed components; see upstream notices |
 | XZ / LZMA 5.2.5, LZO 2.10, LZ4 1.9.4, zstd 1.5.2, zlib 1.2.12 | Upstream corresponding source archives are included in `third-party-source/`; see each archive and `licenses/` for notices |
 
-The squashfs-tools-ng source archive is also included in `third-party-source/`, along with bzip2 1.0.8 source. Upstream archives retain build scripts and license notices. The main application launches the separate native SquashFS tools through standard input/output; it does not require a shell, Python, Docker, WSL, or network access.
+The squashfs-tools-ng and bzip2 1.0.8 source archives are also included in `third-party-source/`. All upstream archives retain their build scripts and license notices. The application communicates with the separate SquashFS tools through standard input/output.
 
-The contents of input and output router firmware retain their respective upstream licenses. Firmware packages are not incorporated into the converter's source code. Personal `profile.json` and generated firmware contain user-specific network settings; they are not part of the reusable application source.
+Input and output firmware retain their respective upstream licenses. Firmware packages are not included in this repository.
