@@ -1,0 +1,33 @@
+# Local settings and generated firmware must never enter the repository.
+profile.json
+ui.json
+*.bin
+*.img
+*.ubi
+*.ubifs
+*.sqfs
+*.squashfs
+*.partial
+生成固件/
+转换报告.json
+SHA256.txt
+.env
+.env.*
+*.pem
+*.key
+*.log
+
+# Build products; the pinned helper executables in tools/ are intentional.
+build/
+build-*/
+out/
+dist/
+.vs/
+.vscode/
+*.obj
+*.res
+*.pdb
+*.ilk
+CMakeUserPresets.json
+Testing/
+__pycache__/

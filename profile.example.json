@@ -1,0 +1,18 @@
+{
+  "lan_ip": "192.168.6.1",
+  "netmask": "255.255.255.0",
+  "pppoe_username": "example-user",
+  "pppoe_password": "example-password",
+  "wifi_ssid": "MyHome",
+  "wifi_password": "example-wifi-password",
+  "admin_password": "example-admin-password",
+  "country": "CN",
+  "ipv6": true,
+  "routing_mode": "router",
+  "side_gateway": "",
+  "side_dns": "",
+  "side_dhcp": false,
+  "hostname": "",
+  "signature": "",
+  "remove_author_links": false
+}

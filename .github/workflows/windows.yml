@@ -1,0 +1,38 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Compile
+        run: cmake --build build --config Release
+      - name: Run native checks
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Prepare portable package
+        run: |
+          cmake --install build --config Release --prefix dist/Kwrt-Studio
+          if (Test-Path dist/Kwrt-Studio/profile.json) { throw 'Personal profile in package' }
+          if (Test-Path dist/Kwrt-Studio/ui.json) { throw 'Local UI state in package' }
+          Compress-Archive -Path dist/Kwrt-Studio -DestinationPath dist/Kwrt-Studio-Windows-x64.zip
+      - name: Upload portable package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Kwrt-Studio-Windows-x64
+          path: dist/Kwrt-Studio-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
