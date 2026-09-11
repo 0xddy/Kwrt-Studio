@@ -48,6 +48,18 @@ KwrtStudio.exe --convert <firmware.bin> --profile <profile.json> --output <empty
 
 配置示例见 `profile.example.json`。自动调用时须等待进程退出并检查退出码；PowerShell 提示符返回不代表转换完成。
 
+## 自动构建与发布
+
+`windows.yml` 在提交到 main 或创建 PR 时编译、自检并保存下载包。`release.yml` 复用同一构建流程，在推送 `v版本号` 标签时将 ZIP 和 SHA-256 校验文件发布到 GitHub Release。
+
+标签必须与 `CMakeLists.txt` 和 EXE 的版本一致，例如 `v1.3.2`。也可在 Actions 中手动运行 Release，按所选提交的版本号创建标签并发布。已有版本标签须指向同一提交，已发布的附件不会被覆盖；未完成的草稿可重新运行补齐。发布说明取自 `CHANGELOG.md` 的对应版本。
+
+构建阶段只有读取权限，发布阶段使用仓库自带的 `GITHUB_TOKEN`。通过构建、自检、版本核对和下载包校验后才发布，无需额外配置令牌。
+
+## 平台支持
+
+当前构建目标为 Windows x64。Win32 界面、CNG 校验、进程管理和随包 SquashFS 组件依赖 Windows；支持 Linux/macOS 需要移植这些部分并验证对应工具，不能仅增加工作流矩阵。
+
 ## AX6000 适配范围
 
 首个适配器验证的输入是本地测试用 KWRT 25.12-SNAPSHOT / mediatek/filogic / Redmi AX6000 镜像，SHA-256：

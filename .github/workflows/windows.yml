@@ -3,9 +3,13 @@ name: Windows build
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      version:
+        description: Built application version
+        value: ${{ jobs.build.outputs.version }}
 
 permissions:
   contents: read
@@ -14,9 +18,13 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Configure
         run: cmake -S . -B build -A x64
       - name: Compile
@@ -24,15 +32,33 @@ jobs:
       - name: Run native checks
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Prepare portable package
+        id: package
+        shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $versionMatch = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(KwrtStudio VERSION (\d+\.\d+\.\d+)\b')
+          if (-not $versionMatch.Success) { throw 'Application version not found' }
+          $version = $versionMatch.Groups[1].Value
           cmake --install build --config Release --prefix dist/Kwrt-Studio
-          if (Test-Path dist/Kwrt-Studio/profile.json) { throw 'Personal profile in package' }
-          if (Test-Path dist/Kwrt-Studio/ui.json) { throw 'Local UI state in package' }
-          Compress-Archive -Path dist/Kwrt-Studio -DestinationPath dist/Kwrt-Studio-Windows-x64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Install failed' }
+          $unexpected = Get-ChildItem dist/Kwrt-Studio -Recurse -Force -File | Where-Object {
+            $_.Name -in 'profile.json', 'ui.json' -or $_.Extension -in '.bin', '.img', '.ubi', '.log'
+          }
+          if ($unexpected) { throw 'Personal settings or firmware found in package' }
+          $binaryVersion = (Get-Item dist/Kwrt-Studio/KwrtStudio.exe).VersionInfo.ProductVersion
+          if ($binaryVersion -ne $version) { throw 'Executable and project versions differ' }
+          $filename = "Kwrt-Studio-$version-Windows-x64.zip"
+          Compress-Archive -Path dist/Kwrt-Studio -DestinationPath "dist/$filename"
+          $hash = (Get-FileHash "dist/$filename" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD 'dist/SHA256SUMS.txt'), "$hash  $filename`n", [Text.UTF8Encoding]::new($false))
+          "version=$version" >> $env:GITHUB_OUTPUT
       - name: Upload portable package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Kwrt-Studio-Windows-x64
-          path: dist/Kwrt-Studio-Windows-x64.zip
+          path: |
+            dist/Kwrt-Studio-*-Windows-x64.zip
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0
